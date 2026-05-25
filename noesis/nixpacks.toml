@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["python311", "python311Packages.pip"]
+
+[phases.install]
+cmds = ["pip install -r noesis/requirements.txt"]
+
+[phases.build]
+cmds = ["echo NOESIS build complete"]
+
+[start]
+cmd = "cd noesis && python server.py"

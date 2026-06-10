@@ -2,6 +2,7 @@
 .env
 *.env
 aegis-net/.env
+ADD_KEY_HERE.txt
 
 # Python
 __pycache__/

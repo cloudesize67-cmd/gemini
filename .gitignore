@@ -1,0 +1,38 @@
+# Secrets — never commit
+.env
+*.env
+aegis-net/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime data
+*.db
+*.sqlite
+.aegis_vectors/
+.youtube_cache/
+.nvidia_cache/
+aegis_security.log
+aegis_security_audit.jsonl
+aegis_v3_audit.jsonl
+architect_cu_log.jsonl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

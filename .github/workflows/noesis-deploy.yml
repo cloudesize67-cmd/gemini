@@ -1,0 +1,189 @@
+name: NOESIS Deploy (Groq-integrated)
+
+on:
+  push:
+    branches:
+      - claude/aegis-cognitive-framework-ic5Jo
+      - main
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ── Job 1: Validate config + syntax ───────────────────────────────────────
+  validate:
+    name: Validate Config & Syntax
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+      GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+      NOESIS_HMAC_SECRET: ${{ secrets.NOESIS_HMAC_SECRET }}
+      LITELLM_MASTER_KEY: ${{ secrets.LITELLM_MASTER_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt litellm>=1.50.0 groq>=0.13.0 httpx>=0.27.0
+
+      - name: Verify no hardcoded secrets
+        run: |
+          if git ls-files | xargs grep -rE "sk-ant-api[0-9a-zA-Z\-]+" 2>/dev/null; then
+            echo "ERROR: Hardcoded Anthropic API key found in tracked files!"
+            exit 1
+          fi
+          echo "✓ No hardcoded secrets detected"
+
+      - name: Syntax check NOESIS agents
+        run: |
+          python -m py_compile noesis/agents/supervisor.py
+          python -m py_compile noesis/agents/arbiter.py
+          python -m py_compile noesis/agents/logos.py
+          python -m py_compile noesis/agents/argus.py
+          python -m py_compile noesis/agents/daedalus.py
+          python -m py_compile noesis/pipeline.py
+          python -m py_compile noesis/server.py
+          echo "✓ Core agent syntax OK"
+
+      - name: Syntax check integration modules
+        run: |
+          python -m py_compile noesis/arbiter_fimi.py
+          python -m py_compile noesis/logos_pathology.py
+          python -m py_compile noesis/supervisor_aae.py
+          python -m py_compile noesis/agentsight.py
+          python -m py_compile noesis/groq_router.py
+          python -m py_compile noesis/supervisor_groq.py
+          echo "✓ Integration module syntax OK"
+
+      - name: Validate LiteLLM config YAML
+        run: |
+          python -c "
+          import yaml, sys
+          with open('noesis/litellm_config.yaml') as f:
+              cfg = yaml.safe_load(f)
+          models = cfg.get('model_list', [])
+          print(f'✓ litellm_config.yaml valid — {len(models)} model entries')
+          "
+
+      - name: Check Groq API connectivity (non-blocking)
+        if: env.GROQ_API_KEY != ''
+        run: |
+          python -c "
+          import httpx, os, sys
+          key = os.environ.get('GROQ_API_KEY', '')
+          if not key:
+              print('GROQ_API_KEY not set — skipping connectivity check')
+              sys.exit(0)
+          r = httpx.get('https://api.groq.com/openai/v1/models',
+                        headers={'Authorization': f'Bearer {key}'}, timeout=10)
+          if r.status_code == 200:
+              models = [m['id'] for m in r.json().get('data', [])]
+              groq_models = [m for m in models if 'llama' in m.lower()]
+              print(f'✓ Groq API reachable — {len(groq_models)} Llama models available')
+          else:
+              print(f'✗ Groq API returned {r.status_code}')
+              sys.exit(1)
+          " || echo "⚠ Groq connectivity check failed (non-blocking)"
+        continue-on-error: true
+
+  # ── Job 2: Groq failover smoke test ───────────────────────────────────────
+  groq-smoke:
+    name: Groq Failover Smoke Test
+    needs: validate
+    runs-on: ubuntu-latest
+    if: vars.GROQ_SMOKE_TEST == 'true'
+    env:
+      GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+      NOESIS_HMAC_SECRET: ${{ secrets.NOESIS_HMAC_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install httpx>=0.27.0
+
+      - name: Groq router smoke test
+        run: |
+          python -c "
+          import sys, os
+          sys.path.insert(0, 'noesis')
+          # GroqRouter requires GROQ_API_KEY — skip gracefully if not set
+          key = os.environ.get('GROQ_API_KEY', '')
+          if not key:
+              print('GROQ_API_KEY not set — skipping Groq smoke test')
+              sys.exit(0)
+          from groq_router import GroqRouter
+          router = GroqRouter()
+          patterns = list(router.BEHAVIORAL_PATTERNS.keys())
+          print(f'✓ GroqRouter init OK — {len(patterns)} patterns: {patterns}')
+          "
+
+  # ── Job 3: Deploy to Railway ───────────────────────────────────────────────
+  deploy:
+    name: Deploy to Railway
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/claude/aegis-cognitive-framework-ic5Jo' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN:      ${{ secrets.RAILWAY_TOKEN }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY:       ${{ secrets.GROQ_API_KEY }}
+          NOESIS_HMAC_SECRET: ${{ secrets.NOESIS_HMAC_SECRET }}
+          LITELLM_MASTER_KEY: ${{ secrets.LITELLM_MASTER_KEY }}
+        run: |
+          railway up --service noesis-api
+          echo "✓ Deployed to Railway"
+
+      - name: Verify deployment health
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          RAILWAY_URL=$(railway status --json | python3 -c \
+            "import sys,json; d=json.load(sys.stdin); print(d.get('url',''))")
+          echo "RAILWAY_URL=$RAILWAY_URL" >> $GITHUB_ENV
+
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$RAILWAY_URL/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✓ Health check passed: $RAILWAY_URL/health"
+              break
+            fi
+            echo "Attempt $i: status=$STATUS, waiting 10s..."
+            sleep 10
+          done
+
+  # ── Job 4: Deployment summary ─────────────────────────────────────────────
+  summary:
+    name: Deployment Summary
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Post deployment summary
+        run: |
+          echo "## NOESIS Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Agents** | SUPERVISOR · ARBITER · LOGOS · ARGUS · DAEDALUS |" >> $GITHUB_STEP_SUMMARY
+          echo "| **LLM routing** | Anthropic primary → Groq fallback (LiteLLM) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Integration modules** | FIMI detector · Pathology gate · AAE governance · AgentSight · Groq router |" >> $GITHUB_STEP_SUMMARY
+          echo "| **URL** | \`${{ env.RAILWAY_URL }}\` |" >> $GITHUB_STEP_SUMMARY

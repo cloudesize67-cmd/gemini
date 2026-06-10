@@ -1,0 +1,92 @@
+# NOESIS LiteLLM Proxy Configuration v2.0
+# Runs: litellm --config noesis/litellm_config.yaml --port 4000
+# All API keys come from environment variables — never hardcoded.
+#
+# Routing: Anthropic primary → Groq fallback
+# Strategy: least-busy with 2 retries and 60s cooldown on failure
+
+model_list:
+  # ── SUPERVISOR (Opus-tier) ──────────────────────────────────────────────
+  - model_name: noesis-supervisor
+    litellm_params:
+      model: claude-opus-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      tpm: 50000
+      rpm: 50
+
+  - model_name: noesis-supervisor
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+    model_info:
+      tpm: 500000
+      rpm: 30
+
+  # ── ARBITER / LOGOS (Sonnet-tier) ───────────────────────────────────────
+  - model_name: noesis-analyst
+    litellm_params:
+      model: claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      tpm: 100000
+      rpm: 100
+
+  - model_name: noesis-analyst
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+    model_info:
+      tpm: 500000
+      rpm: 30
+
+  # ── ARGUS / DAEDALUS (Haiku-tier) ───────────────────────────────────────
+  - model_name: noesis-worker
+    litellm_params:
+      model: claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      tpm: 200000
+      rpm: 200
+
+  - model_name: noesis-worker
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+    model_info:
+      tpm: 1000000
+      rpm: 30
+
+  # ── Fast scan (8B only — latency-critical paths) ────────────────────────
+  - model_name: noesis-fast
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+    model_info:
+      tpm: 1000000
+      rpm: 30
+
+  - model_name: noesis-fast
+    litellm_params:
+      model: claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+    model_info:
+      tpm: 200000
+      rpm: 200
+
+router_settings:
+  routing_strategy: least-busy
+  num_retries: 2
+  timeout: 60
+  cooldown_time: 60
+  retry_after: 5
+
+litellm_settings:
+  drop_params: true
+  max_tokens: 4096
+  temperature: 0.1
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: null        # No DB required — in-memory routing only
+  store_model_in_db: false

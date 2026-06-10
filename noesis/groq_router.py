@@ -140,6 +140,61 @@ class GroqRouter:
                 "Return structured JSON where possible."
             ),
         ),
+        # ── NOESIS agent-role routing patterns ──────────────────────────────
+        "ORCHESTRATION": PatternConfig(
+            model="llama-3.3-70b-versatile",
+            system_prompt=(
+                "You are performing ORCHESTRATION for the NOESIS SUPERVISOR. "
+                "Decompose the given goal into discrete sub-tasks, assign each to the "
+                "correct NOESIS agent (ARGUS=data collection, ARBITER=manipulation scoring, "
+                "LOGOS=stability gate, DAEDALUS=synthesis, H·A·L·I·S=context), "
+                "and output a structured dispatch plan as JSON. "
+                "Flag any task that exceeds agent capability boundaries."
+            ),
+        ),
+        "EXTRACTION": PatternConfig(
+            model="llama-3.1-8b-instant",
+            system_prompt=(
+                "You are performing structured EXTRACTION for the NOESIS ARGUS agent. "
+                "Extract named entities, claims, sources, dates, and sentiment signals "
+                "from the provided text. Return compact JSON with: entities[], claims[], "
+                "sources[], temporal_markers[], sentiment_score (-1 to 1). "
+                "Prioritise factual precision over completeness."
+            ),
+        ),
+        "MANIPULATION_SCAN": PatternConfig(
+            model="llama-3.3-70b-versatile",
+            system_prompt=(
+                "You are performing a MANIPULATION_SCAN for the NOESIS ARBITER. "
+                "Apply the Cialdini 7 persuasion vectors (reciprocity, commitment, "
+                "social proof, authority, liking, scarcity, unity) plus FIMI-specific "
+                "threat vectors to the provided text. "
+                "Score each vector 0.0–1.0. Return JSON with per-vector scores, "
+                "composite_manipulation_score, and top_3_vectors_detected."
+            ),
+        ),
+        "STABILITY_GATE": PatternConfig(
+            model="llama-3.1-8b-instant",
+            system_prompt=(
+                "You are performing STABILITY_GATE assessment for the NOESIS LOGOS agent. "
+                "Evaluate whether the current agent state satisfies Lyapunov stability "
+                "conditions: (1) no pathological loops, (2) retry rate within bounds, "
+                "(3) context growth within authorized limits. "
+                "Return JSON: {stable: bool, lyapunov_delta: float, "
+                "blocking_conditions: [], recommended_action: CONTINUE|THROTTLE|RESET|ESCALATE}."
+            ),
+        ),
+        "SYNTHESIS": PatternConfig(
+            model="llama-3.3-70b-versatile",
+            system_prompt=(
+                "You are performing SYNTHESIS for the NOESIS DAEDALUS agent. "
+                "Integrate findings from ARGUS (data), ARBITER (manipulation scores), "
+                "and LOGOS (stability assessment) into a coherent intelligence brief. "
+                "Structure output as: executive_summary (2 sentences), key_findings[], "
+                "threat_level (LOW/MEDIUM/HIGH/CRITICAL), recommended_actions[], "
+                "confidence_score (0.0–1.0). Flag any inter-agent contradictions."
+            ),
+        ),
     }
 
     def __init__(self):
